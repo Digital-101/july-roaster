@@ -1,7 +1,55 @@
 import * as XLSX from 'xlsx';
 import { Employee, Roster } from '../types/roster';
+import { formatDate } from './rosterGenerator';
 
-export const exportToExcel = (roster: Roster, employees: Employee[]) => {
+export function exportToExcel(roster: Roster, employees: Employee[]) {
+  // Create workbook and worksheet
+  const wb = XLSX.utils.book_new();
+  
+  // Get all unique dates and sort them
+  const dates = Array.from(new Set(roster.entries.map(entry => entry.date)))
+    .sort();
+  
+  // Create headers array
+  const headers = ['Employee', ...dates.map(date => formatDate(date))];
+  
+  // Create data array starting with headers
+  const data = [headers];
+  
+  // Add employee rows
+  employees.forEach(employee => {
+    const row = [employee.name];
+    dates.forEach(date => {
+      const entry = roster.entries.find(e => e.date === date && e.employeeId === employee.id);
+      row.push(entry ? `${entry.shift.startTime} - ${entry.shift.endTime}` : '');
+    });
+    data.push(row);
+  });
+  
+  // Create worksheet from data
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  
+  // Add the worksheet to the workbook
+  XLSX.utils.book_append_sheet(wb, ws, 'Roster');
+
+  // Add styling for Philani's row (yellow background)
+  const philaniIndex = employees.findIndex(emp => emp.name === 'Philani');
+  if (philaniIndex !== -1) {
+    // Add yellow background to all cells in Philani's row
+    const philaniRow = philaniIndex + 1; // +1 because of header row
+    for (let col = 0; col < dates.length + 1; col++) {
+      const cellRef = XLSX.utils.encode_cell({ r: philaniRow, c: col });
+      if (!ws[cellRef]) ws[cellRef] = { v: '' };
+      if (!ws[cellRef].s) ws[cellRef].s = {};
+      ws[cellRef].s.fill = { fgColor: { rgb: "FFFF00" } };
+    }
+  }
+
+  // Save the file
+  XLSX.writeFile(wb, 'roster.xlsx');
+}
+
+export const exportToExcelOld = (roster: Roster, employees: Employee[]) => {
   // Create workbook and worksheet
   const wb = XLSX.utils.book_new();
   

@@ -28,6 +28,22 @@ export function generateRoster(employees: Employee[], month: number, year: numbe
   if (month === 7 && year === 2025) {
     for (let empIdx = 0; empIdx < employees.length; empIdx++) {
       const employee = employees[empIdx];
+      
+      // Special handling for Philani - consistent day shifts
+      if (employee.name === 'Philani') {
+        const dayShift = SHIFTS.find(s => s.type === 'day');
+        if (dayShift) {
+          for (let day = 1; day <= 31; day++) {
+            roster.entries.push({
+              date: new Date(2025, 6, day).toISOString().split('T')[0],
+              employeeId: employee.id,
+              shift: dayShift
+            });
+          }
+        }
+        continue;
+      }
+
       // Remove AL and repeat pattern to fill 31 days
       let pattern = FIXED_TEMPLATE[empIdx].filter(shift => shift !== 'AL');
       while (pattern.length < 31) {
