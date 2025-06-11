@@ -2,13 +2,18 @@ import { Employee, Roster, RosterEntry, SHIFTS } from '../types/roster';
 import { validateRoster } from './rosterValidation';
 import { FIXED_TEMPLATE } from './fixedTemplate';
 
-function shuffleArray<T>(array: T[]): T[] {
-  const newArray = [...array];
-  for (let i = newArray.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
-  }
-  return newArray;
+function getDefaultShiftForDay(dayIdx: number) {
+  // Default to 07:00 - 16:00 for Sundays, else use day or mid
+  const date = new Date(2025, 6, dayIdx + 1);
+  if (date.getDay() === 0) return SHIFTS.find(s => s.type === 'day');
+  return SHIFTS.find(s => s.type === 'mid') || SHIFTS[0];
+}
+
+function getWorkingShift(dayInPattern: number): typeof SHIFTS[0] {
+  // Rotate through different shift types for working days
+  const shiftTypes = ['day', 'mid', 'night', 'overnight'];
+  const shiftType = shiftTypes[dayInPattern % shiftTypes.length];
+  return SHIFTS.find(s => s.type === shiftType) || SHIFTS[0];
 }
 
 export function generateRoster(employees: Employee[], month: number, year: number): Roster {
@@ -23,21 +28,66 @@ export function generateRoster(employees: Employee[], month: number, year: numbe
   if (month === 7 && year === 2025) {
     for (let empIdx = 0; empIdx < employees.length; empIdx++) {
       const employee = employees[empIdx];
+      // Remove AL and repeat pattern to fill 31 days
+      let pattern = FIXED_TEMPLATE[empIdx].filter(shift => shift !== 'AL');
+      while (pattern.length < 31) {
+        pattern = pattern.concat(pattern).slice(0, 31);
+      }
+
+      let dayInPattern = 0; // Track position in 5-2 pattern
+      let isWorkingDay = true; // Start with working day
+
       for (let day = 1; day <= 31; day++) {
-        const shiftStr = FIXED_TEMPLATE[empIdx][day - 1];
-        if (!shiftStr || shiftStr === '08:00 - 17:00') continue; // Ignore blue
-        // Find the shift object
-        const shift = SHIFTS.find(s => `${s.startTime} - ${s.endTime}` === shiftStr);
-        // If not found, treat as OFF or AL
-        if (!shift) {
-          if (shiftStr === 'OFF' || shiftStr === 'AL') {
+        const date = new Date(2025, 6, day);
+        let shiftStr = pattern[day - 1];
+        
+        // Ignore blue
+        if (!shiftStr || shiftStr === '08:00 - 17:00') {
+          // If empty, fill with 5-2 pattern
+          if (isWorkingDay) {
+            const shift = getWorkingShift(dayInPattern);
             roster.entries.push({
-              date: new Date(2025, 6, day).toISOString().split('T')[0],
+              date: date.toISOString().split('T')[0],
+              employeeId: employee.id,
+              shift
+            });
+            dayInPattern++;
+            if (dayInPattern >= 5) {
+              isWorkingDay = false;
+              dayInPattern = 0;
+            }
+          } else {
+            // Add off day
+            roster.entries.push({
+              date: date.toISOString().split('T')[0],
               employeeId: employee.id,
               shift: {
                 startTime: '',
                 endTime: '',
-                type: shiftStr === 'OFF' ? 'off' : 'al',
+                type: 'off',
+                minPeople: 0
+              }
+            });
+            dayInPattern++;
+            if (dayInPattern >= 2) {
+              isWorkingDay = true;
+              dayInPattern = 0;
+            }
+          }
+          continue;
+        }
+
+        // Handle existing shifts from template
+        const shift = SHIFTS.find(s => `${s.startTime} - ${s.endTime}` === shiftStr);
+        if (!shift) {
+          if (shiftStr === 'OFF') {
+            roster.entries.push({
+              date: date.toISOString().split('T')[0],
+              employeeId: employee.id,
+              shift: {
+                startTime: '',
+                endTime: '',
+                type: 'off',
                 minPeople: 0
               }
             });
@@ -45,7 +95,7 @@ export function generateRoster(employees: Employee[], month: number, year: numbe
           continue;
         }
         roster.entries.push({
-          date: new Date(2025, 6, day).toISOString().split('T')[0],
+          date: date.toISOString().split('T')[0],
           employeeId: employee.id,
           shift
         });
