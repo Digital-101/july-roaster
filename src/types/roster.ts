@@ -44,7 +44,7 @@ export const INITIAL_EMPLOYEES: Employee[] = [
   { 
     id: '1', 
     name: 'Nonto', 
-    daysOff: [0, 6],
+    daysOff: [], // Will be randomized
     sundaysWorked: 0,
     nightShiftsWorked: 0,
     totalDaysWorked: 0,
@@ -55,7 +55,7 @@ export const INITIAL_EMPLOYEES: Employee[] = [
   { 
     id: '2', 
     name: 'Philani', 
-    daysOff: [5, 6], // Friday and Saturday
+    daysOff: [5, 6], // Friday and Saturday (fixed)
     isFixedSchedule: true,
     fixedShift: SHIFTS[0], // 07:00 - 16:00
     sundaysWorked: 0,
@@ -68,7 +68,7 @@ export const INITIAL_EMPLOYEES: Employee[] = [
   { 
     id: '3', 
     name: 'Yakeen', 
-    daysOff: [3, 4],
+    daysOff: [], // Will be randomized
     sundaysWorked: 0,
     nightShiftsWorked: 0,
     totalDaysWorked: 0,
@@ -79,7 +79,7 @@ export const INITIAL_EMPLOYEES: Employee[] = [
   { 
     id: '4', 
     name: 'Neli', 
-    daysOff: [5, 6],
+    daysOff: [], // Will be randomized
     sundaysWorked: 0,
     nightShiftsWorked: 0,
     totalDaysWorked: 0,
@@ -90,7 +90,7 @@ export const INITIAL_EMPLOYEES: Employee[] = [
   { 
     id: '5', 
     name: 'Andile', 
-    daysOff: [0, 1],
+    daysOff: [], // Will be randomized
     sundaysWorked: 0,
     nightShiftsWorked: 0,
     totalDaysWorked: 0,
@@ -101,7 +101,7 @@ export const INITIAL_EMPLOYEES: Employee[] = [
   { 
     id: '6', 
     name: 'Nduduzo', 
-    daysOff: [2, 3],
+    daysOff: [], // Will be randomized
     sundaysWorked: 0,
     nightShiftsWorked: 0,
     totalDaysWorked: 0,
@@ -112,7 +112,7 @@ export const INITIAL_EMPLOYEES: Employee[] = [
   { 
     id: '7', 
     name: 'Shemuel', 
-    daysOff: [4, 5],
+    daysOff: [], // Will be randomized
     sundaysWorked: 0,
     nightShiftsWorked: 0,
     totalDaysWorked: 0,

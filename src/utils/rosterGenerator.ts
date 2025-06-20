@@ -1,20 +1,126 @@
 import { Employee, Roster, RosterEntry, SHIFTS } from '../types/roster';
 import { validateRoster } from './rosterValidation';
-import { FIXED_TEMPLATE } from './fixedTemplate';
 
-function getDefaultShiftForDay(dayIdx: number) {
-  // Default to 07:00 - 16:00 for Sundays, else use day or mid
-  const date = new Date(2025, 6, dayIdx + 1);
-  if (date.getDay() === 0) return SHIFTS.find(s => s.type === 'day');
-  return SHIFTS.find(s => s.type === 'mid') || SHIFTS[0];
+// Helper function to get day of week (0 = Sunday, 1 = Monday, etc.)
+function getDayOfWeek(date: Date): number {
+  return date.getDay();
 }
 
-function getWorkingShift(dayInPattern: number): typeof SHIFTS[0] {
-  // Rotate through different shift types for working days
-  const shiftTypes = ['day', 'mid', 'night', 'overnight'];
-  const shiftType = shiftTypes[dayInPattern % shiftTypes.length];
-  return SHIFTS.find(s => s.type === shiftType) || SHIFTS[0];
+// Helper function to shuffle an array
+function shuffleArray<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
 }
+
+// Check if a shift is a night shift
+function isNightShift(shiftType: string): boolean {
+  return shiftType === 'night' || shiftType === 'overnight';
+}
+
+// Check if a shift is a day shift
+function isDayShift(shiftType: string): boolean {
+  return shiftType === 'day' || shiftType === 'mid' || shiftType === 'regular';
+}
+
+// Get previous day's shift for an employee
+function getPreviousDayShift(entries: RosterEntry[], employeeId: string, currentDate: Date): string | null {
+  const previousDate = new Date(currentDate);
+  previousDate.setDate(previousDate.getDate() - 1);
+  const previousDateStr = previousDate.toISOString().split('T')[0];
+  
+  const previousEntry = entries.find(entry => 
+    entry.employeeId === employeeId && entry.date === previousDateStr
+  );
+  
+  return previousEntry ? previousEntry.shift.type : null;
+}
+
+// Check if an employee can work a day shift (not after night shift)
+function canWorkDayShift(entries: RosterEntry[], employeeId: string, currentDate: Date): boolean {
+  const previousShiftType = getPreviousDayShift(entries, employeeId, currentDate);
+  return !previousShiftType || !isNightShift(previousShiftType);
+}
+
+// Count consecutive working days for an employee before a date
+function getConsecutiveWorkDays(entries: RosterEntry[], employeeId: string, beforeDate: Date): number {
+  const employeeEntries = entries
+    .filter(e => e.employeeId === employeeId)
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  
+  let consecutiveWorkDays = 0;
+  const beforeDateStr = beforeDate.toISOString().split('T')[0];
+  
+  // Look backwards from before date
+  for (let i = employeeEntries.length - 1; i >= 0; i--) {
+    const entry = employeeEntries[i];
+    if (entry.date >= beforeDateStr) continue; // Skip future dates
+    
+    if (entry.shift.type === 'off' || entry.shift.type === 'al') {
+      break; // Stop at last day off
+    } else {
+      consecutiveWorkDays++;
+    }
+  }
+  
+  return consecutiveWorkDays;
+}
+
+// Count days off in the current week for an employee
+function getDaysOffInWeek(entries: RosterEntry[], employeeId: string, currentDate: Date): number {
+  const currentWeekStart = new Date(currentDate);
+  currentWeekStart.setDate(currentDate.getDate() - currentDate.getDay()); // Go to Sunday
+  
+  const currentWeekEnd = new Date(currentWeekStart);
+  currentWeekEnd.setDate(currentWeekStart.getDate() + 6); // Go to Saturday
+  
+  const employeeEntries = entries.filter(e => e.employeeId === employeeId);
+  let daysOff = 0;
+  
+  employeeEntries.forEach(entry => {
+    const entryDate = new Date(entry.date);
+    if (entryDate >= currentWeekStart && entryDate <= currentWeekEnd) {
+      if (entry.shift.type === 'off' || entry.shift.type === 'al') {
+        daysOff++;
+      }
+    }
+  });
+  
+  return daysOff;
+}
+
+// Count Sundays worked for an employee in the month
+function getSundaysWorked(entries: RosterEntry[], employeeId: string): number {
+  const employeeEntries = entries.filter(e => e.employeeId === employeeId);
+  let sundaysWorked = 0;
+  
+  employeeEntries.forEach(entry => {
+    const entryDate = new Date(entry.date);
+    if (entryDate.getDay() === 0 && entry.shift.type !== 'off' && entry.shift.type !== 'al') {
+      sundaysWorked++;
+    }
+  });
+  
+  return sundaysWorked;
+}
+
+// Required shifts that must be covered each day
+const REQUIRED_SHIFTS = [
+  { startTime: '07:00', endTime: '16:00', type: 'day' as const, minPeople: 1 },
+  { startTime: '10:00', endTime: '19:00', type: 'mid' as const, minPeople: 1 },
+  { startTime: '19:00', endTime: '04:00', type: 'night' as const, minPeople: 1 },
+  { startTime: '22:00', endTime: '07:00', type: 'overnight' as const, minPeople: 1 }
+];
+
+// Additional shifts for extra workers
+const ADDITIONAL_SHIFTS = [
+  { startTime: '08:00', endTime: '17:00', type: 'regular' as const, minPeople: 0 },
+  { startTime: '07:00', endTime: '16:00', type: 'day' as const, minPeople: 1 },
+  { startTime: '10:00', endTime: '19:00', type: 'mid' as const, minPeople: 1 }
+];
 
 export function generateRoster(employees: Employee[], month: number, year: number): Roster {
   const roster: Roster = {
@@ -24,109 +130,165 @@ export function generateRoster(employees: Employee[], month: number, year: numbe
     year
   };
 
-  // Only apply the fixed template for July 2025
-  if (month === 7 && year === 2025) {
-    for (let empIdx = 0; empIdx < employees.length; empIdx++) {
-      const employee = employees[empIdx];
-      
-      // Special handling for Philani - consistent day shifts
-      if (employee.name === 'Philani') {
-        const dayShift = SHIFTS.find(s => s.type === 'day');
-        if (dayShift) {
-          for (let day = 1; day <= 31; day++) {
-            roster.entries.push({
-              date: new Date(2025, 6, day).toISOString().split('T')[0],
-              employeeId: employee.id,
-              shift: dayShift
-            });
-          }
+  try {
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const entries: RosterEntry[] = [];
+    const employeeOffDays: Record<string, Set<string>> = {};
+    const fixedEmployees = employees.filter(e => e.isFixedSchedule);
+    const nonFixedEmployees = employees.filter(e => !e.isFixedSchedule);
+
+    // Step 1: Pre-assign 2 random off days per week for each non-fixed employee
+    for (const employee of nonFixedEmployees) {
+      employeeOffDays[employee.id] = new Set();
+      let day = 1;
+      while (day <= daysInMonth) {
+        // Get week range
+        const weekStart = day;
+        const weekEnd = Math.min(day + 6, daysInMonth);
+        const weekDays = [];
+        for (let d = weekStart; d <= weekEnd; d++) weekDays.push(d);
+        // Pick 2 random days in this week
+        const shuffled = shuffleArray(weekDays);
+        employeeOffDays[employee.id].add(new Date(year, month - 1, shuffled[0]).toISOString().split('T')[0]);
+        if (shuffled.length > 1) {
+          employeeOffDays[employee.id].add(new Date(year, month - 1, shuffled[1]).toISOString().split('T')[0]);
         }
-        continue;
-      }
-
-      // Remove AL and repeat pattern to fill 31 days
-      let pattern = FIXED_TEMPLATE[empIdx].filter(shift => shift !== 'AL');
-      while (pattern.length < 31) {
-        pattern = pattern.concat(pattern).slice(0, 31);
-      }
-
-      let dayInPattern = 0; // Track position in 5-2 pattern
-      let isWorkingDay = true; // Start with working day
-
-      for (let day = 1; day <= 31; day++) {
-        const date = new Date(2025, 6, day);
-        let shiftStr = pattern[day - 1];
-        
-        // Ignore blue
-        if (!shiftStr || shiftStr === '08:00 - 17:00') {
-          // If empty, fill with 5-2 pattern
-          if (isWorkingDay) {
-            const shift = getWorkingShift(dayInPattern);
-            roster.entries.push({
-              date: date.toISOString().split('T')[0],
-              employeeId: employee.id,
-              shift
-            });
-            dayInPattern++;
-            if (dayInPattern >= 5) {
-              isWorkingDay = false;
-              dayInPattern = 0;
-            }
-          } else {
-            // Add off day
-            roster.entries.push({
-              date: date.toISOString().split('T')[0],
-              employeeId: employee.id,
-              shift: {
-                startTime: '',
-                endTime: '',
-                type: 'off',
-                minPeople: 0
-              }
-            });
-            dayInPattern++;
-            if (dayInPattern >= 2) {
-              isWorkingDay = true;
-              dayInPattern = 0;
-            }
-          }
-          continue;
-        }
-
-        // Handle existing shifts from template
-        const shift = SHIFTS.find(s => `${s.startTime} - ${s.endTime}` === shiftStr);
-        if (!shift) {
-          if (shiftStr === 'OFF') {
-            roster.entries.push({
-              date: date.toISOString().split('T')[0],
-              employeeId: employee.id,
-              shift: {
-                startTime: '',
-                endTime: '',
-                type: 'off',
-                minPeople: 0
-              }
-            });
-          }
-          continue;
-        }
-        roster.entries.push({
-          date: date.toISOString().split('T')[0],
-          employeeId: employee.id,
-          shift
-        });
+        day += 7;
       }
     }
-    roster.validationErrors = validateRoster(roster, employees);
-    return roster;
-  }
+    // Philani's fixed off days (Friday/Saturday)
+    for (const employee of fixedEmployees) {
+      employeeOffDays[employee.id] = new Set();
+      for (let day = 1; day <= daysInMonth; day++) {
+        const date = new Date(year, month - 1, day);
+        if (date.getDay() === 5 || date.getDay() === 6) {
+          employeeOffDays[employee.id].add(date.toISOString().split('T')[0]);
+        }
+      }
+    }
 
-  // fallback: original logic (not used for July 2025)
+    // Step 2: For each day, assign off days and shifts
+    for (let day = 1; day <= daysInMonth; day++) {
+      const date = new Date(year, month - 1, day);
+      const dateStr = date.toISOString().split('T')[0];
+      const dayOfWeek = getDayOfWeek(date);
+      // Who is off today?
+      const offToday = employees.filter(e => employeeOffDays[e.id].has(dateStr));
+      // If less than 1 or more than 3 off, adjust (shouldn't happen, but just in case)
+      if (offToday.length < 1) {
+        // Randomly pick someone to be off
+        const notOff = employees.filter(e => !employeeOffDays[e.id].has(dateStr));
+        const pick = shuffleArray(notOff)[0];
+        employeeOffDays[pick.id].add(dateStr);
+      } else if (offToday.length > 3) {
+        // Remove extras
+        const toRemove = shuffleArray(offToday).slice(3);
+        for (const e of toRemove) employeeOffDays[e.id].delete(dateStr);
+      }
+      // Recompute offToday after adjustment
+      const offTodayFinal = employees.filter(e => employeeOffDays[e.id].has(dateStr));
+      const workingToday = employees.filter(e => !employeeOffDays[e.id].has(dateStr));
+      // If more than 6 working, randomly assign extra off
+      if (workingToday.length > 6) {
+        const toOff = shuffleArray(workingToday).slice(6);
+        for (const e of toOff) employeeOffDays[e.id].add(dateStr);
+      }
+      // If less than 4 working, reassign some off to work
+      if (workingToday.length < 4) {
+        const toWork = shuffleArray(offTodayFinal).slice(0, 4 - workingToday.length);
+        for (const e of toWork) employeeOffDays[e.id].delete(dateStr);
+      }
+      // Final lists for today
+      const offFinal = employees.filter(e => employeeOffDays[e.id].has(dateStr));
+      const workFinal = employees.filter(e => !employeeOffDays[e.id].has(dateStr));
+      // Assign OFF entries
+      offFinal.forEach(employee => {
+        entries.push({
+          date: dateStr,
+          employeeId: employee.id,
+          shift: { startTime: '', endTime: '', type: 'off', minPeople: 0 }
+        });
+      });
+      // Step 3: Assign shifts to working employees
+      // Assign required shifts first
+      const availableWorkers = [...workFinal];
+      const assignedShifts: RosterEntry[] = [];
+      // Helper to check if employee can work a shift (no day after night)
+      function canAssignShift(employee: Employee, shiftType: string): boolean {
+        if (isDayShift(shiftType)) {
+          const prevEntry = entries.find(e => e.employeeId === employee.id && e.date === new Date(new Date(dateStr).getTime() - 86400000).toISOString().split('T')[0]);
+          if (prevEntry && isNightShift(prevEntry.shift.type)) return false;
+        }
+        return true;
+      }
+      // Assign each required shift
+      for (const requiredShift of REQUIRED_SHIFTS) {
+        let assigned = false;
+        // For day shift, prioritize Philani if available
+        if (requiredShift.type === 'day') {
+          const philani = availableWorkers.find(e => e.name === 'Philani' && canAssignShift(e, 'day'));
+          if (philani) {
+            assignedShifts.push({ date: dateStr, employeeId: philani.id, shift: requiredShift });
+            availableWorkers.splice(availableWorkers.indexOf(philani), 1);
+            assigned = true;
+          }
+        }
+        if (!assigned) {
+          // Assign to any available worker who can take this shift
+          const worker = availableWorkers.find(e => canAssignShift(e, requiredShift.type));
+          if (worker) {
+            assignedShifts.push({ date: dateStr, employeeId: worker.id, shift: requiredShift });
+            availableWorkers.splice(availableWorkers.indexOf(worker), 1);
+          }
+        }
+      }
+      // Assign additional shifts to remaining workers
+      availableWorkers.forEach((employee, idx) => {
+        // Prefer day/mid/regular if possible, else night
+        let shift = ADDITIONAL_SHIFTS[idx % ADDITIONAL_SHIFTS.length];
+        if (!canAssignShift(employee, shift.type)) {
+          // Fallback to night/overnight
+          shift = REQUIRED_SHIFTS.find(s => isNightShift(s.type)) || shift;
+        }
+        assignedShifts.push({ date: dateStr, employeeId: employee.id, shift });
+      });
+      entries.push(...assignedShifts);
+    }
+    roster.entries = entries;
+    roster.validationErrors = validateRoster(roster, employees);
+  } catch (error) {
+    roster.validationErrors = [`Error generating roster: ${error}`];
+  }
+  return roster;
+}
+
+// Calculate employee statistics
+export function calculateEmployeeStats(roster: Roster, employee: Employee) {
+  const employeeEntries = roster.entries.filter(e => e.employeeId === employee.id);
+  
+  // Count total working days
+  const workingDays = employeeEntries.filter(e => e.shift.type !== 'off' && e.shift.type !== 'al').length;
+  
+  // Count Sundays worked
+  const sundaysWorked = employeeEntries.filter(e => {
+    if (e.shift.type === 'off' || e.shift.type === 'al') return false;
+    const date = new Date(e.date);
+    return date.getDay() === 0; // Sunday
+  }).length;
+  
+  // Count night shifts
+  const nightShifts = employeeEntries.filter(e => 
+    e.shift.type === 'night' || e.shift.type === 'overnight'
+  ).length;
+  
+  // Count days off
+  const daysOff = employeeEntries.filter(e => e.shift.type === 'off' || e.shift.type === 'al').length;
+  
   return {
-    entries: [],
-    validationErrors: [],
-    month,
-    year
+    workingDays,
+    daysOff,
+    sundaysWorked,
+    nightShifts
   };
 }
 
@@ -141,18 +303,20 @@ export function formatDate(date: string): string {
 export function getShiftColor(shiftType: string): string {
   switch (shiftType) {
     case 'day':
-      return 'bg-blue-100';
+      return 'bg-blue-100 text-blue-800';
     case 'mid':
-      return 'bg-green-100';
+      return 'bg-green-100 text-green-800';
+    case 'regular':
+      return 'bg-cyan-100 text-cyan-800';
     case 'night':
-      return 'bg-purple-100';
+      return 'bg-purple-100 text-purple-800';
     case 'overnight':
-      return 'bg-indigo-100';
+      return 'bg-indigo-100 text-indigo-800';
     case 'off':
-      return 'bg-orange-100';
+      return 'bg-orange-100 text-orange-800';
     case 'al':
-      return 'bg-red-200';
+      return 'bg-red-200 text-red-800';
     default:
-      return 'bg-gray-100';
+      return 'bg-gray-100 text-gray-800';
   }
-} 
+}
