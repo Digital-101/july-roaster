@@ -248,7 +248,7 @@ export function generateRoster(employees: Employee[], month: number, year: numbe
         let shift = ADDITIONAL_SHIFTS[idx % ADDITIONAL_SHIFTS.length];
         if (!canAssignShift(employee, shift.type)) {
           // Fallback to night/overnight
-          shift = REQUIRED_SHIFTS.find(s => isNightShift(s.type)) || shift;
+          shift = (REQUIRED_SHIFTS.find(s => isNightShift(s.type)) as typeof shift) || shift;
         }
         assignedShifts.push({ date: dateStr, employeeId: employee.id, shift });
       });
@@ -283,12 +283,24 @@ export function calculateEmployeeStats(roster: Roster, employee: Employee) {
   
   // Count days off
   const daysOff = employeeEntries.filter(e => e.shift.type === 'off' || e.shift.type === 'al').length;
-  
+
+  // Count consecutive off pairs
+  let consecutiveOffPairs = 0;
+  let prevWasOff = false;
+  for (const entry of employeeEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())) {
+    const isOff = entry.shift.type === 'off' || entry.shift.type === 'al';
+    if (isOff && prevWasOff) {
+      consecutiveOffPairs++;
+    }
+    prevWasOff = isOff;
+  }
+
   return {
     workingDays,
     daysOff,
     sundaysWorked,
-    nightShifts
+    nightShifts,
+    consecutiveOffPairs
   };
 }
 
