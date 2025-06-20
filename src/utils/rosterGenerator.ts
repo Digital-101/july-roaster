@@ -147,11 +147,16 @@ export function generateRoster(employees: Employee[], month: number, year: numbe
         const weekEnd = Math.min(day + 6, daysInMonth);
         const weekDays = [];
         for (let d = weekStart; d <= weekEnd; d++) weekDays.push(d);
-        // Pick 2 random days in this week
+        // For partial weeks, adjust off days proportionally
+        let offCount = 2;
+        if (weekDays.length < 7) {
+          offCount = Math.round((weekDays.length / 7) * 2);
+          if (offCount < 1) offCount = 1;
+        }
+        // Pick exactly offCount random days in this week
         const shuffled = shuffleArray(weekDays);
-        employeeOffDays[employee.id].add(new Date(year, month - 1, shuffled[0]).toISOString().split('T')[0]);
-        if (shuffled.length > 1) {
-          employeeOffDays[employee.id].add(new Date(year, month - 1, shuffled[1]).toISOString().split('T')[0]);
+        for (let i = 0; i < offCount; i++) {
+          employeeOffDays[employee.id].add(new Date(year, month - 1, shuffled[i]).toISOString().split('T')[0]);
         }
         day += 7;
       }
